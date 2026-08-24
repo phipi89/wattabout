@@ -1,8 +1,8 @@
 # WattAbout
 
-> Put things on the same scale.
+> How far could you travel with a cervelat?
 
-WattAbout is a Python library that helps me build an intuition for the climate impact of very different things. It simplifies comparison between food, transportation, trees, … via their co2 equivalent emissions.
+About 83 km by train. WattAbout is a Python library that helps me build an intuition for the climate impact of very different things. It simplifies comparison between food, transportation, trees, … via their co2 equivalent emissions.
 
 ```python
 from wattabout import *
@@ -20,13 +20,13 @@ conclusion = household.shower(10 * minute) # 267 g_CO2e
 # 0.226×
 
 
-# how many trees to compensate my trip to New York over 10 years?
+# how many trees to offset my trip to New York over the next 10 years?
 intercontinental_flight = transport.flight(8_000 * km) # 2.58 t_CO2e
 (2 * intercontinental_flight) / nature.tree_growth(10 * year)
 # -197×
 
 
-# how much better became heating and insulation technology?
+# how much did heating and insulation technology improve?
 buildings.house_1960s() / buildings.minergie
 # 70.7×
 ```

@@ -4,6 +4,7 @@ from .core import (
     Activity,
     AnalyticEquivalence,
     Asset,
+    CombinedActivities,
     Comparison,
     ConfiguredAsset,
     Impact,
@@ -15,45 +16,75 @@ from .core import (
     Source,
     WattAboutError,
 )
+from .formatting import format_quantity, to_preferred_unit
 from .units import (
     MJ,
     Q_,
+    MWh,
+    MWh_th,
+    W,
+    Wh,
     cm,
     coffee_cup,
+    day,
     degC,
     dishwasher_cycle,
+    dryer_cycle,
     g_co2e,
     gram,
     hour,
     kg,
     kg_co2e,
     km,
+    kW,
     kWh,
     kWh_th,
     laptop_device,
+    laundry_cycle,
     liter,
     m,
     m2,
+    meal,
+    mg,
+    microsecond,
+    million_token,
+    millisecond,
     minute,
+    ml,
     mm,
+    nanosecond,
+    parcel,
     phone_charge,
     phone_device,
+    second,
+    token,
+    tonne,
+    tonne_co2e,
     ureg,
+    week,
     year,
 )
 
-building = registry.namespace("building")
-buildings = building
+ai = registry.namespace("ai")
+buildings = registry.namespace("buildings")
 electronics = registry.namespace("electronics")
 energy = registry.namespace("energy")
 food = registry.namespace("food")
 heating = registry.namespace("heating")
 household = registry.namespace("household")
+lifestyle = registry.namespace("lifestyle")
+nature = registry.namespace("nature")
+shipping = registry.namespace("shipping")
 transport = registry.namespace("transport")
+waste = registry.namespace("waste")
 
 
-def categories() -> tuple[str, ...]:
+def list_categories() -> tuple[str, ...]:
     return registry.categories()
+
+
+def list_assets(category: str | None = None) -> tuple[str, ...]:
+    return tuple(asset.id for asset in registry.assets(category))
 
 
 __all__ = [
@@ -62,49 +93,78 @@ __all__ = [
     "Activity",
     "AnalyticEquivalence",
     "Asset",
+    "CombinedActivities",
     "Comparison",
     "ConfiguredAsset",
     "Context",
     "Impact",
     "LinearEquivalence",
+    "MWh",
+    "MWh_th",
     "MissingMetricError",
     "MissingParameterError",
     "NoEquivalentAmountError",
     "Parameter",
     "Source",
+    "W",
     "WattAboutError",
-    "building",
+    "Wh",
+    "ai",
     "buildings",
-    "categories",
     "cm",
     "coffee_cup",
     "context",
+    "day",
     "degC",
     "dishwasher_cycle",
+    "dryer_cycle",
     "electronics",
     "energy",
     "food",
+    "format_quantity",
     "g_co2e",
     "get_context",
     "gram",
     "heating",
     "hour",
     "household",
+    "kW",
     "kWh",
     "kWh_th",
     "kg",
     "kg_co2e",
     "km",
     "laptop_device",
+    "laundry_cycle",
+    "lifestyle",
+    "list_assets",
+    "list_categories",
     "liter",
     "m",
     "m2",
+    "meal",
+    "mg",
+    "microsecond",
+    "million_token",
+    "millisecond",
     "minute",
+    "ml",
     "mm",
+    "nanosecond",
+    "nature",
+    "parcel",
     "phone_charge",
     "phone_device",
     "registry",
+    "second",
+    "shipping",
+    "to_preferred_unit",
+    "token",
+    "tonne",
+    "tonne_co2e",
     "transport",
     "ureg",
+    "waste",
+    "week",
     "year",
 ]

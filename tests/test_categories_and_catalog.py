@@ -4,18 +4,36 @@ import wattabout as wa
 
 
 def test_categories_and_assets_are_discoverable() -> None:
-    assert wa.categories() == (
-        "building",
+    assert wa.list_categories() == (
+        "ai",
+        "buildings",
         "electronics",
         "energy",
         "food",
         "heating",
         "household",
+        "lifestyle",
+        "nature",
+        "shipping",
         "transport",
+        "waste",
     )
-    assert wa.transport.assets() == ("bus", "ev", "petrol_car", "train")
+    assert wa.transport.list_assets() == (
+        "bicycle",
+        "bus",
+        "ebike",
+        "ev",
+        "flight",
+        "flight_private",
+        "petrol_car",
+        "train",
+    )
     assert "ev" in dir(wa.transport)
     assert tuple(wa.transport) == tuple(wa.registry.assets("transport"))
+    assert wa.list_assets("transport") == tuple(
+        f"transport.{name}" for name in wa.transport.list_assets()
+    )
+    assert len(wa.list_assets()) == 51
 
 
 def test_unknown_category_asset_uses_normal_attribute_error() -> None:

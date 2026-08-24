@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import inspect
+import math
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from numbers import Real
 from typing import Any, Protocol
 
-from pint import Quantity, Unit
+from pint import DimensionalityError, Quantity, Unit
 
 from .context import Context, get_context
+from .formatting import format_quantity
 from .units import ureg
 
 
@@ -50,12 +53,42 @@ class Impact:
     dataset: str
     method: str = "IPCC 2021 GWP100"
     assumptions: tuple[str, ...] = ()
+    is_rate: bool = False
 
     def __getitem__(self, metric: str) -> Quantity:
         try:
             return self.values[metric]
         except KeyError as error:
             raise MissingMetricError(f"Impact has no {metric!r} metric") from error
+
+    def over(self, duration: Quantity) -> Impact:
+        if not self.is_rate:
+            raise WattAboutError("Only impact rates can be integrated over a duration")
+        duration.to("second")
+        if duration.magnitude <= 0:
+            raise WattAboutError("duration must be greater than zero")
+        return replace(
+            self,
+            values={metric: value * duration for metric, value in self.values.items()},
+            assumptions=(*self.assumptions, f"Integrated over: {duration:~}"),
+            is_rate=False,
+        )
+
+    def per(self, denominator: Quantity) -> Impact:
+        if denominator.magnitude <= 0:
+            raise WattAboutError("impact intensity denominator must be greater than zero")
+        return replace(
+            self,
+            values={metric: value / denominator for metric, value in self.values.items()},
+            assumptions=(*self.assumptions, f"Normalized by: {denominator:~}"),
+        )
+
+    def scaled(self, factor: float) -> Impact:
+        return replace(
+            self,
+            values={metric: value * factor for metric, value in self.values.items()},
+            assumptions=(*self.assumptions, f"Occurrence factor: {factor:g}"),
+        )
 
 
 PrepareActivity = Callable[[Any, Mapping[str, Any]], tuple[Quantity, Quantity, Mapping[str, Any]]]
@@ -103,7 +136,18 @@ class LinearEquivalence:
             raise NoEquivalentAmountError(
                 f"Cannot solve an equivalent amount for zero-impact asset {asset.name}"
             )
-        ratio = (target_impact / unit_impact).to_base_units().magnitude
+        raw_ratio = target_impact / unit_impact
+        try:
+            ratio = raw_ratio.to(ureg.dimensionless).magnitude
+        except DimensionalityError:
+            if raw_ratio.check("[time]") and asset.is_rate:
+                # A total compared against an annual rate asset asks how much
+                # of the asset operated for its implicit one-year basis.
+                years = raw_ratio.to("year").magnitude
+                return years * unit
+            # A rate compared against a scalable one-off asset yields
+            # equivalents per year, e.g. phone_device / year.
+            return raw_ratio * unit
         return ratio * unit
 
 
@@ -140,6 +184,11 @@ class Asset:
     description: str = ""
     parameters: tuple[Parameter, ...] = ()
     examples: tuple[str, ...] = ()
+    is_rate: bool = False
+    rate_model: ImpactModel | None = None
+    rate_activity_name: str | None = None
+    integration_parameter: str | None = None
+    default_amount: Quantity | None = None
 
     def __post_init__(self) -> None:
         if not self.amount_name.isidentifier():
@@ -151,19 +200,59 @@ class Asset:
             raise WattAboutError(
                 f"Asset {self.id} uses {self.amount_name!r} for both amount and a parameter"
             )
+        if self.integration_parameter is not None:
+            if not self.is_rate:
+                raise WattAboutError(
+                    f"Asset {self.id} has an integration parameter but is not a rate asset"
+                )
+            if self.integration_parameter not in parameter_names:
+                raise WattAboutError(
+                    f"Asset {self.id} integration parameter is missing from its metadata"
+                )
 
     def __call__(self, amount: Any = None, **parameters: Any) -> Activity:
         self._validate_parameters(parameters, require_all=True)
+        amount_was_omitted = amount is None
         if amount is None:
-            amount = 1 * self.default_input_unit
+            amount = (
+                self.default_amount
+                if self.default_amount is not None
+                else 1 * self.default_input_unit
+            )
         elif not isinstance(amount, Quantity):
             amount = amount * self.default_input_unit
         reference_amount, display_amount, normalized = self.prepare(amount, parameters)
-        return Activity(self, reference_amount, display_amount, normalized)
+        activity = Activity(
+            self,
+            reference_amount,
+            display_amount,
+            normalized,
+            impact_is_rate=self.is_rate,
+            amount_was_omitted=amount_was_omitted,
+        )
+        if self.integration_parameter is not None:
+            duration = parameters.get(self.integration_parameter)
+            if duration is not None:
+                return activity.over(duration)
+        return activity
 
     def configure(self, **parameters: Any) -> ConfiguredAsset:
         self._validate_parameters(parameters, require_all=True)
         return ConfiguredAsset(self, dict(parameters))
+
+    def rate(self, *, duration: Quantity | None = None, **parameters: Any) -> Activity:
+        if self.rate_model is None:
+            raise WattAboutError(f"Asset {self.id} does not provide an operating rate")
+        self._validate_parameters(parameters, require_all=True)
+        activity = Activity(
+            self,
+            1 * self.default_input_unit,
+            1 * self.default_input_unit,
+            dict(parameters),
+            impact_model_override=self.rate_model,
+            impact_is_rate=True,
+        )
+        return activity.over(duration) if duration is not None else activity
 
     def _validate_parameters(self, parameters: Mapping[str, Any], *, require_all: bool) -> None:
         known = {parameter.name for parameter in self.parameters}
@@ -213,6 +302,8 @@ class Asset:
 
     def describe(self) -> str:
         lines = [self.name, "", self.description]
+        if self.default_amount is not None:
+            lines.extend(["", f"Default amount: {format_quantity(self.default_amount, '')}"])
         if self.parameters:
             lines.extend(["", "Parameters:"])
             lines.extend(
@@ -239,6 +330,9 @@ class ConfiguredAsset:
     def describe(self) -> str:
         return self.asset.describe()
 
+    def rate(self, *, duration: Quantity | None = None) -> Activity:
+        return self.asset.rate(duration=duration, **self.parameters)
+
     @property
     def __signature__(self) -> inspect.Signature:
         return inspect.Signature(
@@ -262,25 +356,66 @@ class ConfiguredAsset:
         return f"<ConfiguredAsset {self.asset.id} {parameters}>"
 
 
+def _activities_of(item: Activity | CombinedActivities) -> tuple[Activity, ...]:
+    if isinstance(item, CombinedActivities):
+        return item.activities
+    if isinstance(item, Activity):
+        return (item,)
+    raise TypeError(f"Cannot combine {type(item).__name__} into activities")
+
+
 @dataclass(frozen=True, slots=True)
-class Activity:
-    asset: Asset
-    reference_amount: Quantity
-    display_amount: Quantity
-    parameters: Mapping[str, Any] = field(default_factory=dict)
+class Comparable:
+    """Shared comparison and addition behavior for impact-bearing objects."""
 
     def impact(self, context: Context | None = None) -> Impact:
-        return self.asset.impact_model(
-            self.reference_amount,
-            self.parameters,
-            context or get_context(),
+        raise NotImplementedError
+
+    @property
+    def summary_label(self) -> str:
+        raise NotImplementedError
+
+    def _rate_flags(self) -> set[bool]:
+        return {activity.impact_is_rate for activity in _activities_of(self)}
+
+    @property
+    def emission(self) -> Quantity:
+        """Climate impact in the active context."""
+        return self.impact()["climate"]
+
+    @property
+    def energy(self) -> Quantity:
+        """Electricity with the same climate impact on the active context's grid."""
+        return (self.emission / get_context().grid_intensity).to_reduced_units()
+
+    def __add__(self, other: object) -> CombinedActivities:
+        if isinstance(other, (Activity, CombinedActivities)):
+            return CombinedActivities.create((*_activities_of(self), *_activities_of(other)))
+        return NotImplemented
+
+    def __radd__(self, other: object) -> Activity | CombinedActivities:
+        if other == 0:
+            return self  # type: ignore[return-value]
+        return NotImplemented
+
+    def __mul__(self, factor: object) -> Activity | CombinedActivities:
+        if isinstance(factor, bool) or not isinstance(factor, Real):
+            return NotImplemented
+        numeric_factor = float(factor)
+        if not math.isfinite(numeric_factor) or numeric_factor < 0:
+            raise WattAboutError("activity multiplier must be a finite non-negative number")
+        scaled = tuple(
+            replace(
+                activity,
+                occurrence_factor=activity.occurrence_factor * numeric_factor,
+                amount_was_omitted=False,
+            )
+            for activity in _activities_of(self)
         )
+        return scaled[0] if len(scaled) == 1 else CombinedActivities.create(scaled)
 
-    def __str__(self) -> str:
-        return f"{self.display_amount:~} of {self.asset.name}"
-
-    def __repr__(self) -> str:
-        return str(self)
+    def __rmul__(self, factor: object) -> Activity | CombinedActivities:
+        return self * factor
 
     def equivalent_to(
         self,
@@ -293,7 +428,8 @@ class Activity:
     ) -> Comparison:
         selected_context = context or get_context()
         selected_metric = metric or selected_context.default_metric
-        if isinstance(target, Activity):
+        target_is_concrete = isinstance(target, Activity) and not target.amount_was_omitted
+        if target_is_concrete:
             if target_parameters:
                 raise WattAboutError(
                     "Target parameters cannot be supplied with an existing target activity"
@@ -302,6 +438,17 @@ class Activity:
             target_reference = target
             target_unit = ureg.Unit(unit) if unit is not None else target.display_amount.units
             fixed_parameters = target.parameters
+        elif isinstance(target, Activity):
+            if target_parameters:
+                raise WattAboutError(
+                    "Target parameters cannot be supplied with an existing target activity"
+                )
+            target_asset = target.asset
+            target_unit = (
+                ureg.Unit(unit) if unit is not None else target_asset.default_comparison_unit
+            )
+            fixed_parameters = target.parameters
+            target_reference = None
         elif isinstance(target, ConfiguredAsset):
             if target_parameters:
                 raise WattAboutError(
@@ -322,23 +469,35 @@ class Activity:
 
         source_impact = self.impact(selected_context)
         source_value = source_impact[selected_metric]
-        if isinstance(target, Activity):
+        if target_is_concrete:
             target_reference_impact = target_reference.impact(selected_context)
             target_reference_value = target_reference_impact[selected_metric]
             if target_reference_value.magnitude == 0:
                 raise WattAboutError(f"Cannot compare against zero impact for {target_asset.name}")
-            ratio = (source_value / target_reference_value).to_base_units().magnitude
+            raw_ratio = source_value / target_reference_value
             try:
-                amount = target_asset.equivalence.solve(
-                    target_asset,
-                    source_value,
-                    selected_metric,
-                    target_unit,
-                    fixed_parameters,
-                    selected_context,
-                )
-            except NoEquivalentAmountError:
-                amount = None
+                ratio: float | Quantity = raw_ratio.to(ureg.dimensionless).magnitude
+            except DimensionalityError:
+                ratio = raw_ratio
+            if isinstance(ratio, float):
+                try:
+                    amount = target_asset.equivalence.solve(
+                        target_asset,
+                        source_value,
+                        selected_metric,
+                        target_unit,
+                        fixed_parameters,
+                        selected_context,
+                    )
+                except NoEquivalentAmountError:
+                    amount = None
+            else:
+                if source_impact.is_rate and not target_reference_impact.is_rate:
+                    amount = raw_ratio * target.display_amount
+                elif not source_impact.is_rate and target_reference_impact.is_rate:
+                    amount = raw_ratio
+                else:
+                    amount = None
         else:
             amount = target_asset.equivalence.solve(
                 target_asset,
@@ -348,9 +507,23 @@ class Activity:
                 fixed_parameters,
                 selected_context,
             )
-            target_reference = target_asset(amount, **fixed_parameters)
+            uses_archetype_defaults = (
+                isinstance(self, Activity)
+                and self.amount_was_omitted
+                and amount.dimensionality == self.display_amount.dimensionality
+            )
+            if uses_archetype_defaults:
+                target_reference = (
+                    target if isinstance(target, Activity) else target_asset(**fixed_parameters)
+                )
+            else:
+                target_reference = target_asset(1 * target_unit, **fixed_parameters)
             target_reference_impact = target_reference.impact(selected_context)
-            ratio = 1.0
+            raw_ratio = source_value / target_reference_impact[selected_metric]
+            try:
+                ratio = raw_ratio.to(ureg.dimensionless).magnitude
+            except DimensionalityError:
+                ratio = raw_ratio
 
         warnings: list[str] = []
         if source_impact.method != target_reference_impact.method:
@@ -360,14 +533,22 @@ class Activity:
                 f"Lifecycle boundaries differ: {source_impact.boundary} versus "
                 f"{target_reference_impact.boundary}."
             )
+        prefers_ratio = (
+            isinstance(self, Activity)
+            and self.amount_was_omitted
+            and not target_is_concrete
+            and amount is not None
+            and amount.dimensionality == self.display_amount.dimensionality
+        )
         return Comparison(
             source=self,
             target=target_asset,
             target_reference=target_reference,
-            target_is_activity=isinstance(target, Activity),
+            target_is_concrete=target_is_concrete,
             metric=selected_metric,
             amount=amount,
             ratio=ratio,
+            prefers_ratio=prefers_ratio,
             source_impact=source_impact,
             target_reference_impact=target_reference_impact,
             warnings=tuple(warnings),
@@ -380,59 +561,210 @@ class Activity:
 
 
 @dataclass(frozen=True, slots=True)
+class Activity(Comparable):
+    """One concrete activity with an environmental impact."""
+
+    asset: Asset
+    reference_amount: Quantity
+    display_amount: Quantity
+    parameters: Mapping[str, Any] = field(default_factory=dict)
+    impact_model_override: ImpactModel | None = None
+    impact_is_rate: bool = False
+    integration_duration: Quantity | None = None
+    amount_was_omitted: bool = False
+    occurrence_factor: float = 1.0
+
+    def impact(self, context: Context | None = None) -> Impact:
+        model = self.impact_model_override or self.asset.impact_model
+        impact = model(
+            self.reference_amount,
+            self.parameters,
+            context or get_context(),
+        )
+        if impact.is_rate != self.impact_is_rate and self.integration_duration is None:
+            raise WattAboutError(f"Asset {self.asset.id} returned an unexpected impact basis")
+        if self.integration_duration is not None:
+            impact = impact.over(self.integration_duration)
+        if self.occurrence_factor != 1:
+            impact = impact.scaled(self.occurrence_factor)
+        return impact
+
+    def over(self, duration: Quantity) -> Activity:
+        if not self.impact_is_rate:
+            raise WattAboutError("Only rate activities can be integrated over a duration")
+        duration.to("second")
+        if duration.magnitude <= 0:
+            raise WattAboutError("duration must be greater than zero")
+        return replace(
+            self,
+            impact_is_rate=False,
+            integration_duration=duration,
+        )
+
+    def impact_intensity(
+        self, context: Context | None = None, *, per: Quantity | None = None
+    ) -> Impact:
+        impact = self.impact(context)
+        if not impact.is_rate:
+            raise WattAboutError("Impact intensity requires a rate activity")
+        return impact.per(self.display_amount if per is None else per)
+
+    @property
+    def summary_label(self) -> str:
+        result = f"{format_quantity(self.display_amount, '')} of {self.asset.name}"
+        if self.impact_is_rate:
+            if self.impact_model_override is not None:
+                result = f"operating rate of {self.asset.name}"
+            else:
+                result = f"operating rate for {result}"
+        elif self.integration_duration is not None:
+            if self.impact_model_override is not None:
+                result = (
+                    f"{format_quantity(self.integration_duration, '')} of "
+                    f"{self.asset.rate_activity_name or self.asset.name}"
+                )
+            else:
+                result = f"{result} over {format_quantity(self.integration_duration, '')}"
+        if self.occurrence_factor != 1:
+            return f"{self.occurrence_factor:g} × {result}"
+        return result
+
+    def __str__(self) -> str:
+        return self.summary_label
+
+    def __repr__(self) -> str:
+        return format_quantity(self.impact()["climate"])
+
+
+@dataclass(frozen=True, slots=True)
+class CombinedActivities(Comparable):
+    """Sum of several activities' environmental impacts."""
+
+    activities: tuple[Activity, ...]
+
+    @classmethod
+    def create(cls, items: tuple[Activity, ...]) -> CombinedActivities:
+        flags = {activity.impact_is_rate for activity in items}
+        if len(flags) > 1:
+            raise WattAboutError("Cannot add rate and non-rate activities")
+        return cls(items)
+
+    def impact(self, context: Context | None = None) -> Impact:
+        selected_context = context or get_context()
+        impacts = [activity.impact(selected_context) for activity in self.activities]
+
+        metrics: list[str] = []
+        for child_impact in impacts:
+            for metric in child_impact.values:
+                if metric not in metrics:
+                    metrics.append(metric)
+
+        values: dict[str, Quantity] = {}
+        for metric in metrics:
+            total = impacts[0][metric]
+            for child_impact in impacts[1:]:
+                total = total + child_impact[metric]
+            values[metric] = total
+
+        boundaries = {child_impact.boundary for child_impact in impacts}
+        boundary = boundaries.pop() if len(boundaries) == 1 else "mixed"
+        assumptions: tuple[str, ...] = ()
+        for activity, child_impact in zip(self.activities, impacts):
+            assumptions += tuple(
+                f"[{activity.summary_label}] {line}" for line in child_impact.assumptions
+            )
+
+        return Impact(
+            values=values,
+            source=Source(
+                name="Combined activities",
+                citation=("Sum of the combined activities; each component retains its own sources"),
+                components=tuple(child_impact.source for child_impact in impacts),
+            ),
+            geography=selected_context.region,
+            reference_year=selected_context.year,
+            boundary=boundary,
+            dataset=selected_context.dataset,
+            assumptions=assumptions,
+            is_rate=self.activities[0].impact_is_rate,
+        )
+
+    @property
+    def summary_label(self) -> str:
+        return " + ".join(activity.summary_label for activity in self.activities)
+
+    def __str__(self) -> str:
+        return self.summary_label
+
+    def __repr__(self) -> str:
+        return format_quantity(self.impact()["climate"])
+
+
+@dataclass(frozen=True, slots=True)
 class Comparison:
-    source: Activity
+    source: Activity | CombinedActivities
     target: Asset
     target_reference: Activity
-    target_is_activity: bool
+    target_is_concrete: bool
     metric: str
     amount: Quantity | None
-    ratio: float
+    ratio: float | Quantity
     source_impact: Impact
     target_reference_impact: Impact
     warnings: tuple[str, ...] = ()
+    prefers_ratio: bool = False
 
     def __str__(self) -> str:
-        if self.target_is_activity:
+        if isinstance(self.ratio, float) and (self.target_is_concrete or self.prefers_ratio):
             return f"{self.ratio:.3g}×"
         if self.amount is None:
             raise NoEquivalentAmountError("This comparison has no equivalent target amount")
-        return f"{self.amount.magnitude:.3g} {self.amount.units:~}"
+        try:
+            target_amount = self.amount.to(self.target.default_comparison_unit)
+        except DimensionalityError:
+            return format_quantity(self.amount)
+        return format_quantity(target_amount, auto_scale=False)
 
     def __repr__(self) -> str:
         return str(self)
 
     def __float__(self) -> float:
-        if not self.target_is_activity:
-            raise TypeError(
-                "Only comparisons against concrete activities can be converted to float"
-            )
+        if not isinstance(self.ratio, float):
+            raise TypeError("Only dimensionless comparisons can be converted to float")
         return self.ratio
 
+    @property
+    def percentage(self) -> float:
+        if not isinstance(self.ratio, float):
+            raise TypeError("Only dimensionless comparisons have a percentage")
+        return self.ratio * 100
+
     def _summary(self) -> str:
-        if self.target_is_activity:
-            return (
-                f"{self.source.display_amount:~} of {self.source.asset.name} ÷ "
-                f"{self.target_reference.display_amount:~} of {self.target.name} = "
-                f"{self} ({self.metric})"
-            )
-        return (
-            f"{self.source.display_amount:~} of {self.source.asset.name} ≈ "
-            f"{self} of {self.target.name} ({self.metric})"
+        target_label = (
+            f"{format_quantity(self.target_reference.display_amount, '')} of {self.target.name}"
         )
+        if self.target_is_concrete:
+            return f"{self.source.summary_label} ÷ {target_label} = {self} ({self.metric})"
+        return f"{self.source.summary_label} ≈ {self} of {self.target.name} ({self.metric})"
 
     def explain(self) -> str:
-        source_value = self.source_impact[self.metric].to("g_co2e")
-        target_value = self.target_reference_impact[self.metric].to("g_co2e")
+        source_value = self.source_impact[self.metric].to(
+            "g_co2e / year" if self.source_impact.is_rate else "g_co2e"
+        )
+        target_value = self.target_reference_impact[self.metric].to(
+            "g_co2e / year" if self.target_reference_impact.is_rate else "g_co2e"
+        )
         lines = [
             self._summary(),
             "",
             f"Source impact: {source_value:.3g~P}",
             (
-                f"Target reference impact ({self.target_reference.display_amount:.3g~P}): "
-                f"{target_value:.3g~P}"
+                f"Target reference impact ({format_quantity(self.target_reference.display_amount)}): "
+                f"{format_quantity(target_value)}"
             ),
-            f"Target reference ratio: {self.ratio:.3g}",
+            f"Target reference ratio: {format_quantity(self.ratio)}"
+            if isinstance(self.ratio, Quantity)
+            else f"Target reference ratio: {self.ratio:.3g}",
         ]
         lines.extend(["", "Sources:"])
         lines.extend(f"- {citation}" for citation in self.source_impact.source.citations())

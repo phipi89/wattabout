@@ -38,6 +38,16 @@ CUSTOM_BUILDING_SOURCE = Source(
     name="User-configured building",
     citation="User-configured specific useful space-heating demand",
 )
+DEFAULT_FLOOR_AREA_SOURCE = Source(
+    name="Swiss average floor area",
+    citation=(
+        "Prototype default heated floor area of 120 m², informed by the Swiss Federal "
+        "Statistical Office building and dwelling statistics (average dwelling: 102 m² "
+        "living space in 2024); replace before scientific use"
+    ),
+    url="https://www.bfs.admin.ch/bfs/de/home/statistiken/bau-wohnungswesen.html",
+)
+DEFAULT_FLOOR_AREA = Q_(120, "m^2")
 
 
 def _building_model(
@@ -50,16 +60,14 @@ def _building_model(
         floor_area = area.to("m^2")
         if floor_area.magnitude <= 0:
             raise WattAboutError("building floor area must be greater than zero")
-        duration = Q_(parameters.get("duration", "1 year")).to("year")
-        if duration.magnitude <= 0:
-            raise WattAboutError("duration must be greater than zero")
         demand_value = parameters.get("specific_heat_demand", default_demand)
         if demand_value is None:
             raise WattAboutError("specific_heat_demand is required")
         demand = Q_(demand_value).to("kWh_th / m^2 / year")
         if demand.magnitude < 0:
             raise WattAboutError("specific_heat_demand must be nonnegative")
-        useful_heat = (floor_area * demand * duration).to("kWh_th")
+        useful_heat_rate = (floor_area * demand).to("kWh_th / year")
+        annual_useful_heat = (useful_heat_rate * Q_(1, "year")).to("kWh_th")
 
         heating = parameters.get("heating", default_heating)
         if not isinstance(heating, (Asset, ConfiguredAsset)):
@@ -75,9 +83,9 @@ def _building_model(
                 raise WattAboutError(
                     "heating_parameters cannot be used with a configured heating asset"
                 )
-            heating_activity = heating(useful_heat)
+            heating_activity = heating(annual_useful_heat)
         else:
-            heating_activity = heating(useful_heat, **heating_parameters)
+            heating_activity = heating(annual_useful_heat, **heating_parameters)
         heating_impact = heating_activity.impact(context)
         source = Source(
             name=f"{profile_source.name} with {heating_asset.name}",
@@ -86,7 +94,9 @@ def _building_model(
             components=(heating_impact.source,),
         )
         return Impact(
-            values=heating_impact.values,
+            values={
+                metric: value / Q_(1, "year") for metric, value in heating_impact.values.items()
+            },
             source=source,
             geography=context.region,
             reference_year=context.year,
@@ -95,10 +105,11 @@ def _building_model(
             assumptions=(
                 f"Heated floor area: {floor_area:~}",
                 f"Specific useful heat demand: {demand:~}",
-                f"Duration: {duration:~}",
+                "Annual operating rate",
                 "Space heating only; excludes hot water, cooling, appliances, and embodied impacts",
                 *heating_impact.assumptions,
             ),
+            is_rate=True,
         )
 
     return calculate
@@ -108,7 +119,7 @@ def _building_parameters(
     *, required_demand: bool = False, required_heating: bool = False
 ) -> tuple[Parameter, ...]:
     return (
-        Parameter("duration", "operating duration", "1 year"),
+        Parameter("duration", "optional duration used to integrate the annual rate", None),
         Parameter(
             "specific_heat_demand",
             "annual useful space-heat demand per floor area",
@@ -139,7 +150,7 @@ def _period_house(
         ),
     )
     return Asset(
-        id=f"building.house_{year}",
+        id=f"buildings.house_{year}s",
         name=f"typical {year}s house space heating",
         default_input_unit=ureg.meter**2,
         default_comparison_unit=ureg.meter**2,
@@ -151,17 +162,23 @@ def _period_house(
         ),
         equivalence=LinearEquivalence(),
         amount_name="floor_area",
+        default_amount=DEFAULT_FLOOR_AREA,
         description=(
             f"Illustrative annual space-heating scenario for a typical {year}s house "
             f"using {demand} kWh_th/m²/year."
         ),
         parameters=_building_parameters(),
-        examples=(f"wa.building.house_{year}(150 * wa.m2)",),
+        examples=(
+            f"wa.buildings.house_{year}s(150 * wa.m2)",
+            "wa.buildings.minergie()  # Swiss-average prototype floor area",
+        ),
+        is_rate=True,
+        integration_parameter="duration",
     )
 
 
 minergie = Asset(
-    id="building.minergie",
+    id="buildings.minergie",
     name="MINERGIE-like new-building space heating",
     default_input_unit=ureg.meter**2,
     default_comparison_unit=ureg.meter**2,
@@ -173,18 +190,21 @@ minergie = Asset(
     ),
     equivalence=LinearEquivalence(),
     amount_name="floor_area",
+    default_amount=DEFAULT_FLOOR_AREA,
     description=(
         "Illustrative MINERGIE-like operational space-heating scenario, not a certification model."
     ),
     parameters=_building_parameters(),
     examples=(
-        "wa.building.minergie(150 * wa.m2)",
-        "wa.building.minergie(150 * wa.m2, heating=wa.heating.heat_pump)",
+        "wa.buildings.minergie(150 * wa.m2)",
+        "wa.buildings.minergie(150 * wa.m2, heating=wa.heating.heat_pump)",
     ),
+    is_rate=True,
+    integration_parameter="duration",
 )
 
 house_1960s = Asset(
-    id="building.house_1960s",
+    id="buildings.house_1960s",
     name="unrenovated 1960s house space heating",
     default_input_unit=ureg.meter**2,
     default_comparison_unit=ureg.meter**2,
@@ -196,34 +216,37 @@ house_1960s = Asset(
     ),
     equivalence=LinearEquivalence(),
     amount_name="floor_area",
+    default_amount=DEFAULT_FLOOR_AREA,
     description="Illustrative annual space-heating scenario for an unrenovated 1960s house.",
     parameters=_building_parameters(),
     examples=(
-        "wa.building.house_1960s(150 * wa.m2)",
-        "wa.building.house_1960s(150 * wa.m2, heating=wa.heating.oil_boiler)",
+        "wa.buildings.house_1960s(150 * wa.m2)",
+        "wa.buildings.house_1960s(150 * wa.m2, heating=wa.heating.oil_boiler)",
     ),
+    is_rate=True,
+    integration_parameter="duration",
 )
 
-house_1980 = _period_house(
+house_1980s = _period_house(
     year=1980,
     demand=150,
     default_heating=oil_boiler,
 )
 
-house_1990 = _period_house(
+house_1990s = _period_house(
     year=1990,
     demand=110,
     default_heating=gas_boiler,
 )
 
-house_2000 = _period_house(
+house_2000s = _period_house(
     year=2000,
     demand=75,
     default_heating=gas_boiler,
 )
 
 custom = Asset(
-    id="building.custom",
+    id="buildings.custom",
     name="custom building space heating",
     default_input_unit=ureg.meter**2,
     default_comparison_unit=ureg.meter**2,
@@ -235,11 +258,14 @@ custom = Asset(
     ),
     equivalence=LinearEquivalence(),
     amount_name="floor_area",
+    default_amount=DEFAULT_FLOOR_AREA,
     description="User-configured annual operational space-heating scenario.",
     parameters=_building_parameters(required_demand=True, required_heating=True),
     examples=(
-        "wa.building.custom(150 * wa.m2, specific_heat_demand=wa.Q_('90 kWh_th / m^2 / year'), heating=wa.heating.gas_boiler)",
+        "wa.buildings.custom(150 * wa.m2, specific_heat_demand=wa.Q_('90 kWh_th / m^2 / year'), heating=wa.heating.gas_boiler)",
     ),
+    is_rate=True,
+    integration_parameter="duration",
 )
 
-ASSETS = (minergie, house_1960s, house_1980, house_1990, house_2000, custom)
+ASSETS = (minergie, house_1960s, house_1980s, house_1990s, house_2000s, custom)

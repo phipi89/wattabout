@@ -17,15 +17,15 @@ class CategoryNamespace:
             raise AttributeError(f"Category {self._category!r} has no asset {name!r}") from error
 
     def __dir__(self) -> list[str]:
-        return sorted({*super().__dir__(), *self.assets()})
+        return sorted({*super().__dir__(), *self.list_assets()})
 
     def __iter__(self) -> Iterator[Asset]:
         return iter(self._registry.assets(self._category))
 
     def __repr__(self) -> str:
-        return f"<AssetCategory {self._category}: {', '.join(self.assets())}>"
+        return f"<AssetCategory {self._category}: {', '.join(self.list_assets())}>"
 
-    def assets(self) -> tuple[str, ...]:
+    def list_assets(self) -> tuple[str, ...]:
         prefix = f"{self._category}."
         return tuple(
             asset.id.removeprefix(prefix) for asset in self._registry.assets(self._category)

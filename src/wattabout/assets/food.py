@@ -23,6 +23,27 @@ def _food_asset(asset_id: str, name: str, factor: float, description: str) -> As
     )
 
 
+def _meal_asset(diet: str, factor: float) -> Asset:
+    return Asset(
+        id=f"food.meal_{diet}",
+        name=f"{diet} meal",
+        default_input_unit=ureg.meal,
+        default_comparison_unit=ureg.meal,
+        prepare=quantity_prepare("meal"),
+        impact_model=linear_factor_model(
+            factor=Q_(factor, "kg_co2e / meal"),
+            source=FOOD_SOURCE,
+            boundary="cradle_to_consumer",
+            reference_unit="meal",
+            assumptions=("Representative mixed ingredients for one prepared meal",),
+        ),
+        equivalence=LinearEquivalence(),
+        amount_name="meals",
+        description=f"Representative {diet} meal including supply-chain impacts.",
+        examples=(f"wa.food.meal_{diet}(1)",),
+    )
+
+
 cervelat = Asset(
     id="food.cervelat",
     name="cervelat",
@@ -68,4 +89,8 @@ coffee = Asset(
 cheese = _food_asset("cheese", "cheese", 13.5, "Representative hard cheese by mass.")
 tofu = _food_asset("tofu", "tofu", 3.0, "Representative tofu by mass.")
 
-ASSETS = (cervelat, coffee, cheese, tofu)
+meal_omnivore = _meal_asset("omnivore", 2.0)
+meal_vegetarian = _meal_asset("vegetarian", 1.2)
+meal_vegan = _meal_asset("vegan", 0.7)
+
+ASSETS = (cervelat, coffee, cheese, tofu, meal_omnivore, meal_vegetarian, meal_vegan)

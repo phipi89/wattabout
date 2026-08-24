@@ -90,4 +90,68 @@ phone_charge = Asset(
     examples=("wa.electronics.phone_charge(1)",),
 )
 
-ASSETS = (phone, laptop, phone_charge)
+
+def _laptop_use_impact(
+    duration: Quantity, parameters: Mapping[str, Any], context: Context
+) -> Impact:
+    power = Q_(parameters.get("power", "10 W")).to("kW")
+    if power.magnitude < 0:
+        raise WattAboutError("power must be nonnegative")
+    electricity = (power * duration.to("hour")).to("kWh")
+    climate = (electricity * context.grid_intensity).to("kg_co2e")
+    return Impact(
+        values={"climate": climate},
+        source=PHYSICAL_MODEL_SOURCE,
+        geography=context.region,
+        reference_year=context.year,
+        boundary="operational",
+        dataset=context.dataset,
+        assumptions=(
+            f"Average active-use power: {power:~}",
+            f"Grid intensity: {context.grid_intensity:~}",
+        ),
+    )
+
+
+def _laptop_use_rate_impact(_: Quantity, parameters: Mapping[str, Any], context: Context) -> Impact:
+    power = Q_(parameters.get("power", "10 W")).to("kW")
+    if power.magnitude < 0:
+        raise WattAboutError("power must be nonnegative")
+    climate = (power * context.grid_intensity).to("kg_co2e / hour")
+    return Impact(
+        values={"climate": climate},
+        source=PHYSICAL_MODEL_SOURCE,
+        geography=context.region,
+        reference_year=context.year,
+        boundary="operational",
+        dataset=context.dataset,
+        assumptions=(
+            f"Average active-use power: {power:~}",
+            f"Grid intensity: {context.grid_intensity:~}",
+        ),
+        is_rate=True,
+    )
+
+
+laptop_use = Asset(
+    id="electronics.laptop_use",
+    name="laptop active use",
+    default_input_unit=ureg.hour,
+    default_comparison_unit=ureg.hour,
+    prepare=quantity_prepare("hour"),
+    impact_model=_laptop_use_impact,
+    equivalence=LinearEquivalence(),
+    amount_name="duration",
+    description=(
+        "Operational electricity for active laptop use; default reflects an "
+        "M-series MacBook (Apple reports ~3 W idle display-on and 14-22 W under load)."
+    ),
+    parameters=(Parameter("power", "average active-use electrical power", "10 W"),),
+    examples=(
+        "wa.electronics.laptop_use(8 * wa.hour)",
+        "wa.electronics.laptop_use.rate(power='10 W')",
+    ),
+    rate_model=_laptop_use_rate_impact,
+)
+
+ASSETS = (phone, laptop, phone_charge, laptop_use)

@@ -41,7 +41,7 @@ def test_invalid_occupancy_is_rejected() -> None:
 
 
 def test_registry_contains_public_assets() -> None:
-    assert len(wa.registry) == 28
+    assert len(wa.registry) == 51
     assert wa.registry.get("food.cervelat") is wa.food.cervelat
 
 
@@ -49,4 +49,17 @@ def test_activity_has_compact_representation() -> None:
     activity = wa.transport.train(10 * wa.km)
 
     assert str(activity) == "10 km of Swiss passenger train ride"
-    assert repr(activity) == "10 km of Swiss passenger train ride"
+    assert repr(activity) == "71 g_CO2e"
+
+
+def test_rate_activity_repr_shows_climate_impact_rate() -> None:
+    activity = wa.buildings.minergie(120 * wa.m2)
+
+    assert repr(activity) == "102 kg_CO2e / year"
+
+
+def test_activity_repr_uses_active_context() -> None:
+    activity = wa.energy.electricity(1 * wa.kWh)
+
+    with wa.context(grid_intensity=0.1 * wa.kg_co2e / wa.kWh):
+        assert repr(activity) == "100 g_CO2e"

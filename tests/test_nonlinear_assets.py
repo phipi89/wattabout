@@ -70,3 +70,45 @@ def test_dishwasher_uses_energy_per_complete_cycle() -> None:
     impact = wa.household.dishwasher(2).impact(context)["climate"]
 
     assert impact.to("g_co2e").magnitude == pytest.approx(160)
+
+
+def test_preheated_oven_rate_excludes_startup_energy() -> None:
+    context = wa.Context(grid_intensity=0.1 * wa.kg_co2e / wa.kWh)
+    oven_rate = wa.household.oven.rate(temperature=200 * wa.degC)
+
+    impact = oven_rate.impact(context)["climate"]
+    two_hour_total = oven_rate.over(2 * wa.hour).impact(context)["climate"]
+
+    assert impact.to("g_co2e / hour").magnitude == pytest.approx(80)
+    assert two_hour_total.to("g_co2e").magnitude == pytest.approx(160)
+    assert "operating rate" in str(oven_rate)
+
+
+def test_configured_oven_exposes_rate() -> None:
+    configured = wa.household.oven.configure(temperature=220 * wa.degC)
+
+    assert configured.rate().impact().is_rate
+
+
+def test_building_rate_compares_to_oven_rate_dimensionlessly() -> None:
+    house = wa.buildings.house_1990s(120 * wa.m2)
+    oven = wa.household.oven.rate(temperature=220 * wa.degC)
+
+    comparison = house / oven
+
+    assert isinstance(comparison.ratio, float)
+    assert str(comparison).endswith("×")
+
+
+def test_rate_duration_keyword_matches_explicit_integration() -> None:
+    configured_oven = wa.household.oven.configure(temperature=200 * wa.degC)
+    oven_shorthand = configured_oven.rate(duration=2 * wa.hour)
+    oven_explicit = configured_oven.rate().over(2 * wa.hour)
+    refrigerator_shorthand = wa.household.refrigerator.rate(duration=24 * wa.hour)
+    refrigerator_direct = wa.household.refrigerator(24 * wa.hour)
+    light_shorthand = wa.household.led_light.rate(duration=5 * wa.hour, power="10 W")
+    light_direct = wa.household.led_light(5 * wa.hour, power="10 W")
+
+    assert oven_shorthand.impact()["climate"] == oven_explicit.impact()["climate"]
+    assert refrigerator_shorthand.impact()["climate"] == refrigerator_direct.impact()["climate"]
+    assert light_shorthand.impact()["climate"] == light_direct.impact()["climate"]

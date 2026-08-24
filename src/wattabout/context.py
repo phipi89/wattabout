@@ -17,10 +17,14 @@ class Context:
     dataset: str = "wattabout-prototype-ch-2025.1"
     default_metric: str = "climate"
     grid_intensity: Quantity = field(default_factory=lambda: Q_(0.085, "kg_co2e / kWh"))
+    data_center_grid_intensity: Quantity = field(default_factory=lambda: Q_(0.4, "kg_co2e / kWh"))
     heating_oil_intensity: Quantity = field(default_factory=lambda: Q_(0.267, "kg_co2e / kWh"))
     natural_gas_intensity: Quantity = field(default_factory=lambda: Q_(0.202, "kg_co2e / kWh"))
     kettle_efficiency: float = 0.85
     water_inlet_temperature: Quantity = field(default_factory=lambda: Q_(15, "degC"))
+    water_services_intensity: Quantity = field(
+        default_factory=lambda: Q_(0.0005, "kg_co2e / liter")
+    )
 
     def with_overrides(self, **changes: object) -> Context:
         return replace(self, **changes)

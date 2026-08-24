@@ -38,5 +38,6 @@ def test_configured_asset_signature_only_requires_amount() -> None:
 
 def test_catalog_uses_meaningful_primary_argument_names() -> None:
     assert tuple(inspect.signature(wa.transport.train).parameters) == ("distance",)
-    assert next(iter(inspect.signature(wa.building.minergie).parameters)) == "floor_area"
+    assert next(iter(inspect.signature(wa.buildings.minergie).parameters)) == "floor_area"
     assert next(iter(inspect.signature(wa.heating.heat_pump).parameters)) == "useful_heat"
+    assert "duration" in inspect.signature(wa.buildings.minergie).parameters

@@ -63,7 +63,7 @@ def _boil_water_impact(volume: Quantity, parameters: Mapping[str, Any], context:
         assumptions=(
             f"Water heated from {start_temperature:~} to {end_temperature:~}",
             f"Kettle efficiency: {efficiency:.0%}",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
         ),
     )
 
@@ -81,7 +81,7 @@ def _led_light_impact(
         reference_year=context.year,
         boundary="operational",
         dataset=context.dataset,
-        assumptions=(f"Lamp power: {power:~}", f"Grid intensity: {context.grid_intensity:~}"),
+        assumptions=(f"Lamp power: {power:~}", *context.electricity_assumptions),
     )
 
 
@@ -97,7 +97,70 @@ def _led_light_rate_impact(_: Quantity, parameters: Mapping[str, Any], context: 
         reference_year=context.year,
         boundary="operational",
         dataset=context.dataset,
-        assumptions=(f"Lamp power: {power:~}", f"Grid intensity: {context.grid_intensity:~}"),
+        assumptions=(f"Lamp power: {power:~}", *context.electricity_assumptions),
+        is_rate=True,
+    )
+
+
+def _air_conditioning_power(
+    parameters: Mapping[str, Any],
+) -> tuple[Quantity, Quantity, float, float]:
+    cooling_load = Q_(parameters.get("cooling_load", "2.5 kW")).to("kW")
+    cop = float(parameters.get("cop", 3.5))
+    duty_cycle = float(parameters.get("duty_cycle", 0.5))
+    if cooling_load.magnitude < 0:
+        raise WattAboutError("cooling_load must be nonnegative")
+    if cop <= 0:
+        raise WattAboutError("cop must be greater than zero")
+    if not 0 <= duty_cycle <= 1:
+        raise WattAboutError("duty_cycle must be between zero and one")
+    electrical_power = (cooling_load / cop * duty_cycle).to("kW")
+    return electrical_power, cooling_load, cop, duty_cycle
+
+
+def _air_conditioning_impact(
+    duration: Quantity, parameters: Mapping[str, Any], context: Context
+) -> Impact:
+    time = duration.to("hour")
+    if time.magnitude < 0:
+        raise WattAboutError("air-conditioning duration must be nonnegative")
+    power, cooling_load, cop, duty_cycle = _air_conditioning_power(parameters)
+    electricity = (power * time).to("kWh")
+    return Impact(
+        values={"climate": (electricity * context.grid_intensity).to("kg_co2e")},
+        source=PHYSICAL_MODEL_SOURCE,
+        geography=context.region,
+        reference_year=context.year,
+        boundary="operational_cooling",
+        dataset=context.dataset,
+        assumptions=(
+            f"Nominal cooling load: {cooling_load:~}",
+            f"Coefficient of performance: {cop:g}",
+            f"Compressor duty cycle: {duty_cycle:.0%}",
+            f"Average electrical power: {power:~}",
+            *context.electricity_assumptions,
+        ),
+    )
+
+
+def _air_conditioning_rate_impact(
+    _: Quantity, parameters: Mapping[str, Any], context: Context
+) -> Impact:
+    power, cooling_load, cop, duty_cycle = _air_conditioning_power(parameters)
+    return Impact(
+        values={"climate": (power * context.grid_intensity).to("kg_co2e / hour")},
+        source=PHYSICAL_MODEL_SOURCE,
+        geography=context.region,
+        reference_year=context.year,
+        boundary="operational_cooling",
+        dataset=context.dataset,
+        assumptions=(
+            f"Nominal cooling load: {cooling_load:~}",
+            f"Coefficient of performance: {cop:g}",
+            f"Compressor duty cycle: {duty_cycle:.0%}",
+            f"Average electrical power: {power:~}",
+            *context.electricity_assumptions,
+        ),
         is_rate=True,
     )
 
@@ -140,7 +203,7 @@ def _oven_impact(duration: Quantity, parameters: Mapping[str, Any], context: Con
             f"Target temperature: {temperature:~}",
             f"Preheating energy: {preheat:~}",
             f"Average holding power: {holding_power:~}",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
         ),
     )
 
@@ -159,7 +222,7 @@ def _oven_rate_impact(_: Quantity, parameters: Mapping[str, Any], context: Conte
             f"Target temperature: {temperature:~}",
             f"Average holding power: {holding_power:~}",
             "Preheated steady operation; excludes preheating",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
         ),
         is_rate=True,
     )
@@ -209,7 +272,7 @@ def _refrigerator_impact(
         dataset=context.dataset,
         assumptions=(
             f"Average refrigerator power: {average_power:~}",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
         ),
     )
 
@@ -230,7 +293,7 @@ def _refrigerator_rate_impact(
         dataset=context.dataset,
         assumptions=(
             f"Average refrigerator power: {average_power:~}",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
         ),
         is_rate=True,
     )
@@ -254,7 +317,7 @@ def _dishwasher_impact(cycles: Quantity, parameters: Mapping[str, Any], context:
         dataset=context.dataset,
         assumptions=(
             f"Dishwasher energy per complete cycle: {energy_per_cycle:~}",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
         ),
     )
 
@@ -386,7 +449,7 @@ def _washing_machine_impact(
             f"Water per cycle: {water_per_cycle:~}",
             f"Detergent impact per cycle: {detergent_per_cycle:~}",
             f"Water services intensity: {water_intensity:~}",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
         ),
     )
 
@@ -410,7 +473,7 @@ def _tumble_dryer_impact(
         dataset=context.dataset,
         assumptions=(
             f"Electricity per drying cycle: {electricity_per_cycle:~}",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
         ),
     )
 
@@ -595,6 +658,25 @@ tumble_dryer = Asset(
     examples=("wa.household.tumble_dryer(1)",),
 )
 
+air_conditioning = Asset(
+    id="household.air_conditioning",
+    name="air conditioning",
+    default_input_unit=ureg.hour,
+    default_comparison_unit=ureg.hour,
+    prepare=quantity_prepare("hour"),
+    impact_model=_air_conditioning_impact,
+    equivalence=LinearEquivalence(),
+    amount_name="duration",
+    description="Operational room cooling from load, efficiency, duty cycle, and grid context.",
+    parameters=(
+        Parameter("cooling_load", "nominal thermal cooling load", "2.5 kW"),
+        Parameter("cop", "coefficient of performance", 3.5),
+        Parameter("duty_cycle", "fraction of time the compressor runs", 0.5),
+    ),
+    examples=("wa.household.air_conditioning(8 * wa.hour)",),
+    rate_model=_air_conditioning_rate_impact,
+)
+
 ASSETS = (
     boil_water,
     led_light,
@@ -605,4 +687,5 @@ ASSETS = (
     shower,
     washing_machine,
     tumble_dryer,
+    air_conditioning,
 )

@@ -262,7 +262,7 @@ def _ev_impact(distance: Quantity, parameters: Mapping[str, Any], context: Conte
         dataset=context.dataset,
         assumptions=(
             f"Electricity consumption: {consumption:~}",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
             f"Occupancy: {occupancy:g} people",
             f"Vehicle lifecycle included: {bool(parameters.get('include_vehicle', True))}",
         ),
@@ -316,7 +316,7 @@ def _ebike_impact(distance: Quantity, parameters: Mapping[str, Any], context: Co
             f"E-bike lifecycle allocation including battery: {lifecycle_rate:~}",
             f"Battery electricity consumption: {consumption:~}",
             f"Charging efficiency: {charging_efficiency:.0%}",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
             "Rider food energy and transport infrastructure excluded",
         ),
     )

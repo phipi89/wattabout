@@ -179,13 +179,13 @@ Included prototype assets:
 | `transport` | `bicycle`, `bus`, `ebike`, `ev`, `flight`, `flight_private`, `petrol_car`, `train` |
 | `electronics` | `laptop`, `laptop_use`, `phone`, `phone_charge` |
 | `food` | `cervelat`, `cheese`, `coffee`, `meal_omnivore`, `meal_vegetarian`, `meal_vegan`, `tofu` |
-| `household` | `boil_water`, `dishwasher`, `hot_water`, `led_light`, `oven`, `refrigerator`, `shower`, `tumble_dryer`, `washing_machine` |
-| `energy` | `electricity`, `natural_gas` |
-| `heating` | `electric_resistance`, `gas_boiler`, `heat_pump`, `oil_boiler` |
+| `household` | `air_conditioning`, `boil_water`, `dishwasher`, `hot_water`, `led_light`, `oven`, `refrigerator`, `shower`, `tumble_dryer`, `washing_machine` |
+| `energy` | `diesel`, `electricity`, `natural_gas`, `petrol`, `rooftop_solar`, `wood_pellets` |
+| `heating` | `electric_resistance`, `gas_boiler`, `heat_pump`, `oil_boiler`, `pellet_boiler` |
 | `buildings` | `custom`, `house_1960s`, `house_1980s`, `house_1990s`, `house_2000s`, `minergie` |
 | `ai` | `efficient_llm`, `frontier_llm`, `local_llm` |
 | `lifestyle` | `china_resident`, `european_resident`, `india_resident`, `swiss_resident`, `us_resident` |
-| `nature` | `tree_growth` |
+| `nature` | `direct_air_capture`, `forest_fire`, `tree_growth`, `volcanic_eruption` |
 | `shipping` | `parcel_from_china` |
 | `waste` | `mixed` |
 
@@ -487,6 +487,44 @@ wa.nature.tree_growth(30 * wa.year) / wa.electronics.phone()
 # -3.38×    negative ratios flow through by design
 ```
 
+Direct air capture also returns a negative impact. Its default is a conservative
+purchase scenario of CHF 1,000 per nominal tonne and an 80% expected delivery
+fraction. It represents expected contracted removal, not immediate delivery:
+
+```python
+wa.nature.direct_air_capture(100 * wa.CHF)
+# -80 kg_CO2e
+
+wa.electronics.phone() / wa.nature.direct_air_capture
+# 87.5 CHF
+
+wa.nature.direct_air_capture(100 * wa.CHF, delivery_fraction=1)
+# -100 kg_CO2e for an already delivered certificate
+```
+
+Forest fires report gross event emissions from area actually burned. The
+temperate default is deliberately configurable and does not subtract uncertain
+future regrowth:
+
+```python
+wa.nature.forest_fire(2 * wa.hectare)
+wa.nature.forest_fire(5_000 * wa.m2)
+wa.nature.forest_fire(
+    2 * wa.ha,
+    emissions_per_area=wa.Q_("50 tonne_co2e / hectare"),
+)
+```
+
+Volcanic profiles use direct CO2 estimates for documented events or explicit
+generic scenarios. Temporary sulfate-aerosol cooling is not netted against CO2:
+
+```python
+wa.nature.volcanic_eruption(1, profile="mount_st_helens_1980")
+wa.nature.volcanic_eruption(1, profile="pinatubo_1991")
+wa.nature.volcanic_eruption(1, profile="etna_2004_2005")
+wa.nature.volcanic_eruption(1, profile="small")
+```
+
 Everyday comparisons:
 
 ```python
@@ -496,6 +534,70 @@ wa.waste.mixed(20 * wa.kg)  # residual waste to incineration
 wa.shipping.parcel_from_china(1)  # air freight
 wa.shipping.parcel_from_china(1, mode="rail")  # overland rail
 ```
+
+## Electricity, Cooling, And Fuels
+
+Rooftop solar has a positive lifecycle footprint per generated kWh. It does not
+automatically claim avoided grid emissions:
+
+```python
+with wa.context(wa.energy.rooftop_solar):
+    oven = wa.household.oven(30 * wa.minute, temperature=200 * wa.degC)
+```
+
+That context assumes the load is fully supplied by solar at the modeled
+lifecycle intensity. It does not enforce generation capacity or account for
+timing, storage, curtailment, self-consumption, or grid backup.
+
+The explicit form is equivalent, and configured combustion fuels represent
+electricity from generators rather than direct fuel use:
+
+```python
+with wa.context(electricity=wa.energy.rooftop_solar):
+    solar_cooling = wa.household.air_conditioning(8 * wa.hour)
+
+diesel_generator = wa.energy.diesel.configure(
+    energy_density="9.8 kWh / liter",
+    generator_efficiency=0.4,
+)
+with wa.context(diesel_generator):
+    backup_power = wa.household.refrigerator(24 * wa.hour)
+```
+
+The source and conversion assumptions are retained in each resulting impact.
+Direct `grid_intensity` overrides remain available, but cannot be combined with
+an electricity source in the same context.
+
+Air conditioning uses cooling load, COP, compressor duty cycle, and the same
+electricity context. Petrol and diesel expose direct and upstream factors by
+volume without assuming a vehicle or distance:
+
+```python
+wa.household.air_conditioning(8 * wa.hour, cooling_load="2.5 kW", cop=3.5)
+wa.energy.petrol(40 * wa.liter)
+wa.energy.diesel(40 * wa.liter)
+```
+
+Wood pellets are modeled by mass using a 4.8 kWh/kg lower heating value. Gross
+biogenic stack CO2 is counted by default and no future regrowth credit is
+applied. Supply-chain and non-CO2 combustion factors remain separate and
+configurable:
+
+```python
+wa.energy.wood_pellets(1_000 * wa.kg)
+
+# Inventory-reporting style: gross stack CO2 remains disclosed in assumptions
+wa.energy.wood_pellets(1_000 * wa.kg, include_biogenic_co2=False)
+
+wa.heating.pellet_boiler(10_000 * wa.kWh_th, efficiency=0.85)
+wa.buildings.house_2000s(
+    heating=wa.heating.pellet_boiler.configure(efficiency=0.85),
+)
+```
+
+Pellets cannot be passed to `context()` because fuel energy is not delivered
+electricity. A biomass generator would require its own electrical efficiency
+and, for combined heat and power, an explicit allocation model.
 
 ## Lifestyle Benchmarks
 
@@ -549,6 +651,14 @@ wa.tonne
 wa.g_co2e
 wa.kg_co2e
 wa.tonne_co2e
+
+wa.m2
+wa.hectare
+wa.ha
+wa.km2
+
+wa.CHF
+wa.eruption_event
 ```
 
 Representations automatically select readable units for scalar quantities:
@@ -556,6 +666,7 @@ Representations automatically select readable units for scalar quantities:
 ```python
 wa.format_quantity(3_153 * wa.second)  # '52.5 min'
 wa.format_quantity(2_500 * wa.m)  # '2.5 km'
+wa.format_quantity(10_000 * wa.m2)  # '1 ha'
 
 wa.ai.frontier_llm(1e6) / wa.buildings.house_1960s(120 * wa.m2)
 # 52.5 min
@@ -593,6 +704,14 @@ An explicit context can also be passed directly:
 ```python
 custom = wa.Context(grid_intensity=0.02 * wa.kg_co2e / wa.kWh)
 impact = wa.household.boil_water(1 * wa.liter).impact(custom)
+```
+
+Electricity-producing energy assets can replace the effective grid supply for
+all grid-sensitive activities:
+
+```python
+with wa.context(wa.energy.rooftop_solar):
+    impact = wa.household.boil_water(1 * wa.liter).impact()
 ```
 
 ## Development

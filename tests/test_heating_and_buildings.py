@@ -83,6 +83,26 @@ def test_building_accepts_configured_heating_system() -> None:
     assert impact.to("kg_co2e / year").magnitude == pytest.approx(expected)
 
 
+def test_pellet_boiler_converts_useful_heat_to_pellet_mass() -> None:
+    boiler = wa.heating.pellet_boiler(10_000 * wa.kWh_th, efficiency=0.85)
+    impact = boiler.impact()
+    pellet_mass = 10_000 / 0.85 / 4.8
+    expected = pellet_mass * 1.8 + (10_000 / 0.85) * (0.025 + 0.005)
+
+    assert impact["climate"].to("kg_co2e").magnitude == pytest.approx(expected)
+    assert any("Pellet mass" in item for item in impact.assumptions)
+
+
+def test_pellet_boiler_integrates_with_building_profiles() -> None:
+    building = wa.buildings.house_2000s(
+        100 * wa.m2,
+        heating=wa.heating.pellet_boiler.configure(efficiency=0.85),
+    )
+    direct = wa.heating.pellet_boiler(7_500 * wa.kWh_th, efficiency=0.85)
+
+    assert building.impact()["climate"] * wa.year == direct.impact()["climate"]
+
+
 def test_custom_building_requires_demand_and_heating() -> None:
     with pytest.raises(wa.MissingParameterError, match="heating, specific_heat_demand"):
         wa.buildings.custom(100 * wa.m2)

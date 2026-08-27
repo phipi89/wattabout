@@ -91,7 +91,7 @@ def _local_llm_impact(tokens: Quantity, parameters: Mapping[str, Any], context: 
             f"Average device power: {device_power:~}",
             f"Generation throughput: {throughput:~}",
             f"Runtime: {runtime:~}",
-            f"Local grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
             "Excludes model training and hardware manufacture",
         ),
     )

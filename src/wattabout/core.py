@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 from pint import DimensionalityError, Quantity, Unit
 
-from .context import Context, get_context
+from .context import Context, ElectricitySupply, get_context
 from .formatting import format_quantity
 from .units import ureg
 
@@ -94,6 +94,7 @@ class Impact:
 PrepareActivity = Callable[[Any, Mapping[str, Any]], tuple[Quantity, Quantity, Mapping[str, Any]]]
 ImpactModel = Callable[[Quantity, Mapping[str, Any], Context], Impact]
 InverseModel = Callable[[Quantity, str, Unit, Mapping[str, Any], Context], Quantity]
+ElectricitySupplyModel = Callable[[Mapping[str, Any], Context], ElectricitySupply]
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +190,7 @@ class Asset:
     rate_activity_name: str | None = None
     integration_parameter: str | None = None
     default_amount: Quantity | None = None
+    electricity_supply_model: ElectricitySupplyModel | None = None
 
     def __post_init__(self) -> None:
         if not self.amount_name.isidentifier():
@@ -239,6 +241,14 @@ class Asset:
     def configure(self, **parameters: Any) -> ConfiguredAsset:
         self._validate_parameters(parameters, require_all=True)
         return ConfiguredAsset(self, dict(parameters))
+
+    def electricity_supply(
+        self, context: Context | None = None, **parameters: Any
+    ) -> ElectricitySupply:
+        if self.electricity_supply_model is None:
+            raise WattAboutError(f"Asset {self.id} cannot supply electricity")
+        self._validate_parameters(parameters, require_all=True)
+        return self.electricity_supply_model(parameters, context or get_context())
 
     def rate(self, *, duration: Quantity | None = None, **parameters: Any) -> Activity:
         if self.rate_model is None:
@@ -332,6 +342,9 @@ class ConfiguredAsset:
 
     def rate(self, *, duration: Quantity | None = None) -> Activity:
         return self.asset.rate(duration=duration, **self.parameters)
+
+    def electricity_supply(self, context: Context | None = None) -> ElectricitySupply:
+        return self.asset.electricity_supply(context, **self.parameters)
 
     @property
     def __signature__(self) -> inspect.Signature:

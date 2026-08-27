@@ -133,8 +133,6 @@ def test_rate_targets_are_always_concrete() -> None:
 def test_ratio_and_amount_invariant_holds_across_catalog() -> None:
     source = wa.electronics.phone()
     for asset in wa.registry:
-        if asset.id == "nature.tree_growth":
-            continue  # matches by absorption magnitude, so signs differ by design
         if any(parameter.required for parameter in asset.parameters):
             targets: tuple[object, ...] = ()
         else:
@@ -144,6 +142,8 @@ def test_ratio_and_amount_invariant_holds_across_catalog() -> None:
                 comparison = source.equivalent_to(target)
             except wa.NoEquivalentAmountError:
                 continue
+            if comparison.target_reference_impact["climate"].magnitude < 0:
+                continue  # removal targets solve by magnitude while ratios retain their sign
             expected = comparison.amount / comparison.target_reference.display_amount
             if isinstance(comparison.ratio, float):
                 assert comparison.ratio == pytest.approx(

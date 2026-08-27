@@ -1,5 +1,5 @@
 from .assets import registry
-from .context import Context, context, get_context
+from .context import Context, ElectricitySupply, context, get_context
 from .core import (
     Activity,
     AnalyticEquivalence,
@@ -18,6 +18,7 @@ from .core import (
 )
 from .formatting import format_quantity, to_preferred_unit
 from .units import (
+    CHF,
     MJ,
     Q_,
     MWh,
@@ -30,12 +31,16 @@ from .units import (
     degC,
     dishwasher_cycle,
     dryer_cycle,
+    eruption_event,
     g_co2e,
     gram,
+    ha,
+    hectare,
     hour,
     kg,
     kg_co2e,
     km,
+    km2,
     kW,
     kWh,
     kWh_th,
@@ -88,6 +93,7 @@ def list_assets(category: str | None = None) -> tuple[str, ...]:
 
 
 __all__ = [
+    "CHF",
     "MJ",
     "Q_",
     "Activity",
@@ -97,6 +103,7 @@ __all__ = [
     "Comparison",
     "ConfiguredAsset",
     "Context",
+    "ElectricitySupply",
     "Impact",
     "LinearEquivalence",
     "MWh",
@@ -120,12 +127,15 @@ __all__ = [
     "dryer_cycle",
     "electronics",
     "energy",
+    "eruption_event",
     "food",
     "format_quantity",
     "g_co2e",
     "get_context",
     "gram",
+    "ha",
     "heating",
+    "hectare",
     "hour",
     "household",
     "kW",
@@ -134,6 +144,7 @@ __all__ = [
     "kg",
     "kg_co2e",
     "km",
+    "km2",
     "laptop_device",
     "laundry_cycle",
     "lifestyle",

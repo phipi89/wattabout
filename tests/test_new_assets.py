@@ -161,6 +161,11 @@ def test_parcel_rejects_unknown_mode() -> None:
 
 
 def test_new_categories_are_discoverable() -> None:
-    assert wa.nature.list_assets() == ("tree_growth",)
+    assert wa.nature.list_assets() == (
+        "direct_air_capture",
+        "forest_fire",
+        "tree_growth",
+        "volcanic_eruption",
+    )
     assert wa.shipping.list_assets() == ("parcel_from_china",)
     assert wa.waste.list_assets() == ("mixed",)

@@ -19,15 +19,21 @@ ureg.define("meal = [meal_count]")
 ureg.define("parcel = [parcel_count]")
 ureg.define("laundry_cycle = [laundry_cycle_count]")
 ureg.define("dryer_cycle = [dryer_cycle_count]")
+ureg.define("CHF = [currency]")
+ureg.define("eruption_event = [eruption_count]")
 
 Q_ = ureg.Quantity
 
 kg_co2e = ureg.kg_co2e
 g_co2e = ureg.g_co2e
 tonne_co2e = ureg.tonne_co2e
+CHF = ureg.CHF
 km = ureg.kilometer
 m = ureg.meter
 m2 = ureg.meter**2
+hectare = ureg.hectare
+ha = ureg.hectare
+km2 = ureg.kilometer**2
 cm = ureg.centimeter
 mm = ureg.millimeter
 kg = ureg.kilogram
@@ -65,3 +71,4 @@ meal = ureg.meal
 parcel = ureg.parcel
 laundry_cycle = ureg.laundry_cycle
 dryer_cycle = ureg.dryer_cycle
+eruption_event = ureg.eruption_event

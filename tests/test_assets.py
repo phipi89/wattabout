@@ -41,7 +41,7 @@ def test_invalid_occupancy_is_rejected() -> None:
 
 
 def test_registry_contains_public_assets() -> None:
-    assert len(wa.registry) == 51
+    assert len(wa.registry) == 60
     assert wa.registry.get("food.cervelat") is wa.food.cervelat
 
 

@@ -19,6 +19,7 @@ _PREFERRED_UNITS: tuple[tuple[Unit, ...], ...] = (
         ureg.year,
     ),
     (ureg.millimeter, ureg.centimeter, ureg.meter, ureg.kilometer),
+    (ureg.meter**2, ureg.hectare, ureg.kilometer**2),
     (ureg.milligram, ureg.gram, ureg.kilogram, ureg.tonne),
     (ureg.milliliter, ureg.liter, ureg.meter**3),
     (ureg.watt_hour, ureg.kilowatt_hour, ureg.megawatt_hour),

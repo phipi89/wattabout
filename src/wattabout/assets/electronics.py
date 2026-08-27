@@ -30,7 +30,7 @@ def _phone_charge_impact(
         assumptions=(
             f"Battery capacity: {capacity:~}",
             f"Charging efficiency: {efficiency:.0%}",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
         ),
     )
 
@@ -108,7 +108,7 @@ def _laptop_use_impact(
         dataset=context.dataset,
         assumptions=(
             f"Average active-use power: {power:~}",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
         ),
     )
 
@@ -127,7 +127,7 @@ def _laptop_use_rate_impact(_: Quantity, parameters: Mapping[str, Any], context:
         dataset=context.dataset,
         assumptions=(
             f"Average active-use power: {power:~}",
-            f"Grid intensity: {context.grid_intensity:~}",
+            *context.electricity_assumptions,
         ),
         is_rate=True,
     )

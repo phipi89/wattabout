@@ -33,6 +33,8 @@ def test_time_quantities_use_readable_units(quantity, expected: str) -> None:
         (2_000 * wa.kg_co2e, "2 t_CO2e"),
         (2 * wa.MWh_th, "2 MWh_th"),
         (1 * wa.million_token, "1 million_token"),
+        (10_000 * wa.m2, "1 ha"),
+        (1_000_000 * wa.m2, "1 km²"),
     ],
 )
 def test_other_scalar_dimensions_use_readable_units(quantity, expected: str) -> None:
@@ -67,3 +69,8 @@ def test_common_units_are_exported() -> None:
     assert wa.kW == wa.ureg.kilowatt
     assert wa.MWh == wa.ureg.megawatt_hour
     assert wa.tonne == wa.ureg.tonne
+    assert wa.CHF == wa.ureg.CHF
+    assert wa.ha == wa.ureg.hectare
+    assert wa.hectare == wa.ureg.hectare
+    assert wa.km2 == wa.ureg.kilometer**2
+    assert wa.eruption_event == wa.ureg.eruption_event

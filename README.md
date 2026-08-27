@@ -13,15 +13,15 @@ ai.frontier_llm(3e6 * token, cache_read_ratio=0.95) / food.cervelat(100 * gram)
 
 
 # lets do a trip
-lunch = food.meal_omnivore()               # 2 kg_CO2e
-travel = transport.petrol_car(35 * km)     # 5.99 kg_CO2e
-conclusion = household.shower(10 * minute) # 267 g_CO2e
+lunch = food.meal_omnivore()  # 2 kg_CO2e
+travel = transport.petrol_car(35 * km)  # 5.99 kg_CO2e
+conclusion = household.shower(10 * minute)  # 267 g_CO2e
 (lunch + travel + conclusion) / lifestyle.swiss_resident(1 * day)
 # 0.226×
 
 
 # how many trees to offset my trip to New York over the next 10 years?
-intercontinental_flight = transport.flight(8_000 * km) # 2.58 t_CO2e
+intercontinental_flight = transport.flight(8_000 * km)  # 2.58 t_CO2e
 (2 * intercontinental_flight) / nature.tree_growth(10 * year)
 # -197×
 

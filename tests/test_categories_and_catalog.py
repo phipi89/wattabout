@@ -33,7 +33,7 @@ def test_categories_and_assets_are_discoverable() -> None:
     assert wa.list_assets("transport") == tuple(
         f"transport.{name}" for name in wa.transport.list_assets()
     )
-    assert len(wa.list_assets()) == 51
+    assert len(wa.list_assets()) == 60
 
 
 def test_unknown_category_asset_uses_normal_attribute_error() -> None:

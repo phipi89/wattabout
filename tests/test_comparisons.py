@@ -189,3 +189,105 @@ def test_building_default_comparison_shows_ratio() -> None:
     assert str(omitted) == "3.57×"
     assert (old / minergie).ratio == pytest.approx(70.676, rel=0.001)
     assert isinstance(omitted.ratio, float)
+
+
+def test_activity_divided_by_three_activity_bundle_is_a_concrete_ratio() -> None:
+    source = wa.electronics.phone()
+    target = (
+        wa.food.coffee() + wa.transport.train(100 * wa.km) + wa.household.boil_water(2 * wa.liter)
+    )
+
+    comparison = source / target
+    expected = (source.emission / target.emission).to(wa.ureg.dimensionless).magnitude
+
+    assert comparison.target is target
+    assert comparison.target_reference is target
+    assert comparison.amount is None
+    assert comparison.ratio == pytest.approx(expected)
+    assert str(comparison) == f"{expected:.3g}×"
+    assert repr(comparison) == str(comparison)
+
+
+def test_combined_source_divided_by_four_activity_bundle() -> None:
+    source = wa.food.coffee() + wa.food.cervelat(100 * wa.gram) + wa.transport.train(10 * wa.km)
+    target = (
+        wa.household.boil_water(1 * wa.liter)
+        + wa.electronics.phone()
+        + wa.food.coffee()
+        + wa.transport.train(20 * wa.km)
+    )
+
+    comparison = source / target
+    expected = (source.emission / target.emission).to(wa.ureg.dimensionless).magnitude
+
+    assert comparison.amount is None
+    assert comparison.ratio == pytest.approx(expected)
+    assert float(comparison) == pytest.approx(expected)
+
+
+def test_combined_target_explanation_uses_bundle_label_and_sources() -> None:
+    target = (
+        wa.food.coffee() + wa.transport.train(10 * wa.km) + wa.household.boil_water(1 * wa.liter)
+    )
+    comparison = wa.electronics.phone() / target
+
+    explanation = comparison.explain()
+
+    assert target.summary_label in explanation
+    assert "Target reference impact" in explanation
+    assert "food lifecycle" in explanation
+    assert "transport" in explanation
+    assert comparison.warnings
+    assert "Warnings:" in explanation
+
+
+@pytest.mark.parametrize("argument", ["unit", "target_parameters"])
+def test_combined_target_rejects_solving_arguments(argument: str) -> None:
+    target = wa.food.coffee() + wa.food.coffee() + wa.food.coffee()
+
+    with pytest.raises(wa.WattAboutError, match="combined target"):
+        if argument == "unit":
+            wa.electronics.phone().equivalent_to(target, unit="kg")
+        else:
+            wa.electronics.phone().equivalent_to(target, occupancy=2)
+
+
+def test_combined_target_rejects_zero_impact() -> None:
+    target = 0 * (
+        wa.food.coffee() + wa.transport.train(10 * wa.km) + wa.household.boil_water(1 * wa.liter)
+    )
+
+    with pytest.raises(wa.WattAboutError, match="zero impact.*combined activities"):
+        wa.electronics.phone() / target
+
+
+def test_total_divided_by_combined_rate_formats_dimensional_ratio() -> None:
+    target = (
+        wa.buildings.minergie(100 * wa.m2)
+        + wa.buildings.house_1990s(100 * wa.m2)
+        + wa.buildings.house_2000s(100 * wa.m2)
+    )
+
+    comparison = wa.electronics.phone() / target
+
+    assert comparison.amount is None
+    assert isinstance(comparison.ratio, wa.Q_)
+    assert comparison.ratio.check("[time]")
+    assert str(comparison) == wa.format_quantity(comparison.ratio)
+    assert repr(comparison) == str(comparison)
+
+
+def test_combined_rate_divided_by_combined_total_formats_dimensional_ratio() -> None:
+    source = (
+        wa.buildings.minergie(100 * wa.m2)
+        + wa.buildings.house_1990s(100 * wa.m2)
+        + wa.buildings.house_2000s(100 * wa.m2)
+    )
+    target = wa.food.coffee() + wa.transport.train(100 * wa.km) + wa.electronics.phone()
+
+    comparison = source / target
+
+    assert comparison.amount is None
+    assert isinstance(comparison.ratio, wa.Q_)
+    assert comparison.ratio.check("1 / [time]")
+    assert str(comparison) == wa.format_quantity(comparison.ratio)

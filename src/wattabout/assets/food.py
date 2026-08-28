@@ -58,6 +58,7 @@ cervelat = Asset(
         assumptions=("Standard cylindrical cervelat geometry",),
     ),
     equivalence=LinearEquivalence(),
+    accepted_input_units=(ureg.gram, ureg.meter),
     amount_name="amount",
     description="Cervelat by mass or by length using an assumed cylindrical geometry.",
     parameters=(

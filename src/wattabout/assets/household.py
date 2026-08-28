@@ -14,6 +14,7 @@ from ..core import (
     LinearEquivalence,
     NoEquivalentAmountError,
     Parameter,
+    ParameterSchema,
     Source,
     WattAboutError,
 )
@@ -522,7 +523,16 @@ oven = Asset(
     amount_name="cooking_time",
     description="Electric oven cooking time with temperature-dependent preheating and holding energy.",
     parameters=(
-        Parameter("temperature", "oven target temperature", required=True),
+        Parameter(
+            "temperature",
+            "oven target temperature",
+            required=True,
+            schema=ParameterSchema(
+                kind="quantity",
+                default_unit=ureg.degC,
+                accepted_units=(ureg.degC, ureg.degF, ureg.kelvin),
+            ),
+        ),
         Parameter("ambient_temperature", "oven starting temperature", "20 degC"),
         Parameter("include_preheating", "include cold-start preheating", True),
         Parameter("preheat_energy_at_200c", "prototype preheating energy at 200°C", "0.5 kWh"),

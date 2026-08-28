@@ -13,6 +13,7 @@ from .core import (
     MissingParameterError,
     NoEquivalentAmountError,
     Parameter,
+    ParameterSchema,
     Source,
     WattAboutError,
 )
@@ -112,6 +113,7 @@ __all__ = [
     "MissingParameterError",
     "NoEquivalentAmountError",
     "Parameter",
+    "ParameterSchema",
     "Source",
     "W",
     "WattAboutError",

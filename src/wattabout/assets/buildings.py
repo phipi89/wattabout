@@ -12,6 +12,7 @@ from ..core import (
     Impact,
     LinearEquivalence,
     Parameter,
+    ParameterSchema,
     Source,
     WattAboutError,
 )
@@ -125,12 +126,30 @@ def _building_parameters(
             "annual useful space-heat demand per floor area",
             None if required_demand else "profile default",
             required=required_demand,
+            schema=(
+                ParameterSchema(
+                    kind="quantity",
+                    default_unit=ureg.kWh_th / ureg.meter**2 / ureg.year,
+                    accepted_units=(
+                        ureg.kWh_th / ureg.meter**2 / ureg.year,
+                        ureg.MWh_th / ureg.meter**2 / ureg.year,
+                        ureg.kWh_th / ureg.foot**2 / ureg.year,
+                    ),
+                )
+                if required_demand
+                else None
+            ),
         ),
         Parameter(
             "heating",
             "heating Asset or ConfiguredAsset",
             None if required_heating else "profile default",
             required=required_heating,
+            schema=(
+                ParameterSchema(kind="asset", asset_category="heating")
+                if required_heating
+                else None
+            ),
         ),
         Parameter("heating_parameters", "parameters passed to the heating asset", "{}"),
     )

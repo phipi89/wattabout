@@ -5,7 +5,7 @@ import math
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from numbers import Real
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pint import DimensionalityError, Quantity, Unit
 
@@ -98,11 +98,22 @@ ElectricitySupplyModel = Callable[[Mapping[str, Any], Context], ElectricitySuppl
 
 
 @dataclass(frozen=True, slots=True)
+class ParameterSchema:
+    kind: Literal["quantity", "asset", "choice", "boolean", "number", "string", "mapping"]
+    default_unit: Unit | None = None
+    accepted_units: tuple[Unit, ...] = ()
+    choices: tuple[Any, ...] = ()
+    asset_category: str | None = None
+    nullable: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class Parameter:
     name: str
     description: str
     default: Any = None
     required: bool = False
+    schema: ParameterSchema | None = None
 
 
 class Equivalence(Protocol):
@@ -181,6 +192,7 @@ class Asset:
     prepare: PrepareActivity
     impact_model: ImpactModel
     equivalence: Equivalence
+    accepted_input_units: tuple[Unit, ...] = ()
     amount_name: str = "amount"
     description: str = ""
     parameters: tuple[Parameter, ...] = ()
@@ -193,6 +205,15 @@ class Asset:
     electricity_supply_model: ElectricitySupplyModel | None = None
 
     def __post_init__(self) -> None:
+        if not self.accepted_input_units:
+            object.__setattr__(self, "accepted_input_units", (self.default_input_unit,))
+        dimensions = [unit.dimensionality for unit in self.accepted_input_units]
+        if self.default_input_unit.dimensionality not in dimensions:
+            raise WattAboutError(
+                f"Asset {self.id} accepted input units must include its default dimension"
+            )
+        if len(dimensions) != len(set(dimensions)):
+            raise WattAboutError(f"Asset {self.id} has duplicate accepted input dimensions")
         if not self.amount_name.isidentifier():
             raise WattAboutError(f"Invalid amount parameter name {self.amount_name!r}")
         parameter_names = [parameter.name for parameter in self.parameters]
@@ -432,7 +453,7 @@ class Comparable:
 
     def equivalent_to(
         self,
-        target: Asset | ConfiguredAsset | Activity,
+        target: Asset | ConfiguredAsset | Activity | CombinedActivities,
         *,
         metric: str | None = None,
         unit: str | Unit | None = None,
@@ -441,8 +462,20 @@ class Comparable:
     ) -> Comparison:
         selected_context = context or get_context()
         selected_metric = metric or selected_context.default_metric
-        target_is_concrete = isinstance(target, Activity) and not target.amount_was_omitted
-        if target_is_concrete:
+        target_is_bundle = isinstance(target, CombinedActivities)
+        target_is_concrete = target_is_bundle or (
+            isinstance(target, Activity) and not target.amount_was_omitted
+        )
+        if target_is_bundle:
+            if unit is not None:
+                raise WattAboutError("unit cannot be supplied with a combined target")
+            if target_parameters:
+                raise WattAboutError("Target parameters cannot be supplied with a combined target")
+            target_asset = None
+            target_reference = target
+            target_unit = None
+            fixed_parameters = {}
+        elif target_is_concrete:
             if target_parameters:
                 raise WattAboutError(
                     "Target parameters cannot be supplied with an existing target activity"
@@ -482,14 +515,25 @@ class Comparable:
 
         source_impact = self.impact(selected_context)
         source_value = source_impact[selected_metric]
-        if target_is_concrete:
+        if target_is_bundle:
+            target_reference_impact = target_reference.impact(selected_context)
+            target_reference_value = target_reference_impact[selected_metric]
+            if target_reference_value.magnitude == 0:
+                raise WattAboutError("Cannot compare against zero impact for combined activities")
+            raw_ratio = source_value / target_reference_value
+            try:
+                ratio = float(raw_ratio.to(ureg.dimensionless).magnitude)
+            except DimensionalityError:
+                ratio = raw_ratio
+            amount = None
+        elif target_is_concrete:
             target_reference_impact = target_reference.impact(selected_context)
             target_reference_value = target_reference_impact[selected_metric]
             if target_reference_value.magnitude == 0:
                 raise WattAboutError(f"Cannot compare against zero impact for {target_asset.name}")
             raw_ratio = source_value / target_reference_value
             try:
-                ratio: float | Quantity = raw_ratio.to(ureg.dimensionless).magnitude
+                ratio = float(raw_ratio.to(ureg.dimensionless).magnitude)
             except DimensionalityError:
                 ratio = raw_ratio
             if isinstance(ratio, float):
@@ -534,7 +578,7 @@ class Comparable:
             target_reference_impact = target_reference.impact(selected_context)
             raw_ratio = source_value / target_reference_impact[selected_metric]
             try:
-                ratio = raw_ratio.to(ureg.dimensionless).magnitude
+                ratio = float(raw_ratio.to(ureg.dimensionless).magnitude)
             except DimensionalityError:
                 ratio = raw_ratio
 
@@ -555,7 +599,7 @@ class Comparable:
         )
         return Comparison(
             source=self,
-            target=target_asset,
+            target=target if target_is_bundle else target_asset,
             target_reference=target_reference,
             target_is_concrete=target_is_concrete,
             metric=selected_metric,
@@ -567,8 +611,10 @@ class Comparable:
             warnings=tuple(warnings),
         )
 
-    def __truediv__(self, target: Asset | ConfiguredAsset | Activity) -> Comparison:
-        if not isinstance(target, (Asset, ConfiguredAsset, Activity)):
+    def __truediv__(
+        self, target: Asset | ConfiguredAsset | Activity | CombinedActivities
+    ) -> Comparison:
+        if not isinstance(target, (Asset, ConfiguredAsset, Activity, CombinedActivities)):
             return NotImplemented
         return self.equivalent_to(target)
 
@@ -716,8 +762,8 @@ class CombinedActivities(Comparable):
 @dataclass(frozen=True, slots=True)
 class Comparison:
     source: Activity | CombinedActivities
-    target: Asset
-    target_reference: Activity
+    target: Asset | CombinedActivities
+    target_reference: Activity | CombinedActivities
     target_is_concrete: bool
     metric: str
     amount: Quantity | None
@@ -731,7 +777,11 @@ class Comparison:
         if isinstance(self.ratio, float) and (self.target_is_concrete or self.prefers_ratio):
             return f"{self.ratio:.3g}×"
         if self.amount is None:
+            if isinstance(self.ratio, Quantity):
+                return format_quantity(self.ratio)
             raise NoEquivalentAmountError("This comparison has no equivalent target amount")
+        if isinstance(self.target, CombinedActivities):
+            raise NoEquivalentAmountError("A combined target has no equivalent target amount")
         try:
             target_amount = self.amount.to(self.target.default_comparison_unit)
         except DimensionalityError:
@@ -753,12 +803,17 @@ class Comparison:
         return self.ratio * 100
 
     def _summary(self) -> str:
-        target_label = (
-            f"{format_quantity(self.target_reference.display_amount, '')} of {self.target.name}"
-        )
+        if isinstance(self.target_reference, CombinedActivities):
+            target_label = self.target_reference.summary_label
+            target_name = target_label
+        else:
+            target_label = (
+                f"{format_quantity(self.target_reference.display_amount, '')} of {self.target.name}"
+            )
+            target_name = self.target.name
         if self.target_is_concrete:
             return f"{self.source.summary_label} ÷ {target_label} = {self} ({self.metric})"
-        return f"{self.source.summary_label} ≈ {self} of {self.target.name} ({self.metric})"
+        return f"{self.source.summary_label} ≈ {self} of {target_name} ({self.metric})"
 
     def explain(self) -> str:
         source_value = self.source_impact[self.metric].to(
@@ -767,12 +822,17 @@ class Comparison:
         target_value = self.target_reference_impact[self.metric].to(
             "g_co2e / year" if self.target_reference_impact.is_rate else "g_co2e"
         )
+        target_reference_label = (
+            self.target_reference.summary_label
+            if isinstance(self.target_reference, CombinedActivities)
+            else format_quantity(self.target_reference.display_amount)
+        )
         lines = [
             self._summary(),
             "",
             f"Source impact: {source_value:.3g~P}",
             (
-                f"Target reference impact ({format_quantity(self.target_reference.display_amount)}): "
+                f"Target reference impact ({target_reference_label}): "
                 f"{format_quantity(target_value)}"
             ),
             f"Target reference ratio: {format_quantity(self.ratio)}"

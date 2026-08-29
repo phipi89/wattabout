@@ -28,9 +28,49 @@ def test_zero_multiplier_has_zero_impact() -> None:
     assert (0 * wa.transport.flight(8_000 * wa.km)).emission.magnitude == 0
 
 
-@pytest.mark.parametrize("factor", [-1, float("inf"), float("nan")])
+def test_negative_fractional_multipliers_work_on_both_sides() -> None:
+    activity = wa.food.coffee()
+
+    left = -0.5 * activity
+    right = activity * -0.5
+
+    assert left.emission == right.emission == activity.emission * -0.5
+    assert str(left).startswith("-0.5 × ")
+
+
+def test_repeated_signed_scaling_combines_occurrence_factors() -> None:
+    activity = -2 * wa.transport.flight(8_000 * wa.km)
+
+    restored = activity * -0.5
+
+    assert restored.emission == wa.transport.flight(8_000 * wa.km).emission
+    assert restored.occurrence_factor == 1
+
+
+def test_division_scales_activities_and_combinations() -> None:
+    activity = wa.transport.flight(8_000 * wa.km)
+    combination = activity + wa.food.coffee()
+
+    half = activity / 2
+    negative_half = combination / -2
+
+    assert isinstance(half, wa.Activity)
+    assert half.emission == activity.emission * 0.5
+    assert half.occurrence_factor == 0.5
+    assert isinstance(negative_half, wa.CombinedActivities)
+    assert negative_half.emission == combination.emission * -0.5
+    assert all(item.occurrence_factor == -0.5 for item in negative_half.activities)
+
+
+@pytest.mark.parametrize("divisor", [0, float("inf"), float("-inf"), float("nan")])
+def test_invalid_activity_divisors_are_rejected(divisor: float) -> None:
+    with pytest.raises(wa.WattAboutError, match="divisor.*finite non-zero"):
+        wa.food.coffee() / divisor
+
+
+@pytest.mark.parametrize("factor", [float("inf"), float("-inf"), float("nan")])
 def test_invalid_activity_multipliers_are_rejected(factor: float) -> None:
-    with pytest.raises(wa.WattAboutError, match="multiplier"):
+    with pytest.raises(wa.WattAboutError, match="finite"):
         factor * wa.food.coffee()
 
 

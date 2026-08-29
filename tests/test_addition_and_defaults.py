@@ -26,6 +26,32 @@ def test_chained_addition_flattens_children() -> None:
     assert "smartphone production" in str(combo)
 
 
+def test_subtraction_adds_a_negative_occurrence() -> None:
+    coffee = wa.food.coffee()
+    phone = wa.electronics.phone()
+
+    difference = phone - coffee
+
+    assert len(difference.activities) == 2
+    assert difference.activities[1].occurrence_factor == -1
+    assert difference.emission == phone.emission - coffee.emission
+    assert str(difference) == f"{phone.summary_label} - {coffee.summary_label}"
+
+
+def test_subtracting_combinations_flattens_and_formats_signed_factors() -> None:
+    phone = wa.electronics.phone()
+    coffee = wa.food.coffee()
+    train = wa.transport.train(10 * wa.km)
+
+    difference = phone - (2 * coffee + train)
+
+    assert len(difference.activities) == 3
+    assert difference.emission == phone.emission - 2 * coffee.emission - train.emission
+    assert str(difference) == (
+        f"{phone.summary_label} - 2 × {coffee.summary_label} - {train.summary_label}"
+    )
+
+
 def test_builtin_sum_works_via_radd() -> None:
     activities = [wa.food.coffee(), wa.food.coffee(), wa.electronics.phone()]
 
@@ -58,6 +84,11 @@ def test_combined_impact_composes_sources() -> None:
 def test_rate_and_total_cannot_be_added() -> None:
     with pytest.raises(wa.WattAboutError, match="rate and non-rate"):
         wa.buildings.minergie(100 * wa.m2) + wa.transport.train(10 * wa.km)
+
+
+def test_rate_and_total_cannot_be_subtracted() -> None:
+    with pytest.raises(wa.WattAboutError, match="rate and non-rate"):
+        wa.buildings.minergie(100 * wa.m2) - wa.transport.train(10 * wa.km)
 
 
 def test_rates_can_be_added_and_remain_a_rate() -> None:

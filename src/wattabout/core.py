@@ -432,12 +432,19 @@ class Comparable:
             return self  # type: ignore[return-value]
         return NotImplemented
 
+    def __sub__(self, other: object) -> CombinedActivities:
+        if isinstance(other, (Activity, CombinedActivities)):
+            return self + (-1 * other)
+        return NotImplemented
+
     def __mul__(self, factor: object) -> Activity | CombinedActivities:
         if isinstance(factor, bool) or not isinstance(factor, Real):
             return NotImplemented
         numeric_factor = float(factor)
-        if not math.isfinite(numeric_factor) or numeric_factor < 0:
-            raise WattAboutError("activity multiplier must be a finite non-negative number")
+        if not math.isfinite(numeric_factor):
+            raise WattAboutError("activity multiplier must be a finite number")
+        if numeric_factor == 0:
+            numeric_factor = 0.0
         scaled = tuple(
             replace(
                 activity,
@@ -611,9 +618,12 @@ class Comparable:
             warnings=tuple(warnings),
         )
 
-    def __truediv__(
-        self, target: Asset | ConfiguredAsset | Activity | CombinedActivities
-    ) -> Comparison:
+    def __truediv__(self, target: object) -> Activity | CombinedActivities | Comparison:
+        if not isinstance(target, bool) and isinstance(target, Real):
+            divisor = float(target)
+            if not math.isfinite(divisor) or divisor == 0:
+                raise WattAboutError("activity divisor must be a finite non-zero number")
+            return self * (1 / divisor)
         if not isinstance(target, (Asset, ConfiguredAsset, Activity, CombinedActivities)):
             return NotImplemented
         return self.equivalent_to(target)
@@ -750,7 +760,14 @@ class CombinedActivities(Comparable):
 
     @property
     def summary_label(self) -> str:
-        return " + ".join(activity.summary_label for activity in self.activities)
+        result = self.activities[0].summary_label
+        for activity in self.activities[1:]:
+            if activity.occurrence_factor < 0:
+                unsigned = replace(activity, occurrence_factor=-activity.occurrence_factor)
+                result += f" - {unsigned.summary_label}"
+            else:
+                result += f" + {activity.summary_label}"
+        return result
 
     def __str__(self) -> str:
         return self.summary_label

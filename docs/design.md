@@ -85,9 +85,11 @@ Detailed provenance and assumptions remain available:
 print(equivalent.explain())
 ```
 
-Activities can be added to combine their impacts, regardless of their amount
-units. Multiplication repeats an occurrence without changing the activity's
-input, which matters for nonlinear models:
+Activities can be added or subtracted to combine their impacts, regardless of
+their amount units. Subtraction adds the subtracted activities with an
+occurrence factor of `-1`. Multiplication accepts any finite real occurrence
+factor, and division by a finite non-zero real applies its reciprocal. Neither
+operation changes the activity's input, which matters for nonlinear models:
 
 ```python
 combo = wa.food.cervelat(10 * wa.cm) + wa.household.boil_water(1 * wa.liter)
@@ -105,6 +107,12 @@ trip = 2 * wa.transport.flight(8_000 * wa.km)
 # two 8,000 km flights, not one 16,000 km flight
 
 wa.nature.tree_growth(5 * wa.year) + trip
+
+avoided = trip - 0.5 * trip
+# one trip minus half an occurrence of the same trip
+
+average = trip / 2
+# half an occurrence of the 8,000 km flight
 ```
 
 Rate and non-rate activities cannot be mixed in one sum; rate sums remain
@@ -667,6 +675,12 @@ Representations automatically select readable units for scalar quantities:
 wa.format_quantity(3_153 * wa.second)  # '52.5 min'
 wa.format_quantity(2_500 * wa.m)  # '2.5 km'
 wa.format_quantity(10_000 * wa.m2)  # '1 ha'
+
+# Keep the current unit and expand large magnitudes without scientific notation.
+wa.format_quantity(0.591123 * wa.m, auto_scale=False, scientific=False)  # '0.591 m'
+wa.format_quantity(12_345_353 * wa.m, auto_scale=False, scientific=False)
+# '12345353 m'
+wa.format_number(12_345_353, scientific=False)  # '12345353'
 
 wa.ai.frontier_llm(1e6) / wa.buildings.house_1960s(120 * wa.m2)
 # 52.5 min

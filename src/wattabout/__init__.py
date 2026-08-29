@@ -17,7 +17,7 @@ from .core import (
     Source,
     WattAboutError,
 )
-from .formatting import format_quantity, to_preferred_unit
+from .formatting import format_number, format_quantity, to_preferred_unit
 from .units import (
     CHF,
     MJ,
@@ -131,6 +131,7 @@ __all__ = [
     "energy",
     "eruption_event",
     "food",
+    "format_number",
     "format_quantity",
     "g_co2e",
     "get_context",

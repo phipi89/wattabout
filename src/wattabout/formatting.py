@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
+from numbers import Real
 
 from pint import DimensionalityError, Quantity, Unit
 
@@ -49,11 +51,38 @@ def to_preferred_unit(quantity: Quantity) -> Quantity:
     return quantity
 
 
-def format_quantity(quantity: Quantity, precision: str = ".3g", *, auto_scale: bool = True) -> str:
+def format_number(value: Real, significant_digits: int = 3, *, scientific: bool = True) -> str:
+    """Format a scalar, optionally expanding it without scientific notation."""
+    if significant_digits < 1:
+        raise ValueError("significant_digits must be at least one")
+    number = float(value)
+    if not math.isfinite(number):
+        return str(number)
+    if scientific:
+        return f"{number:.{significant_digits}g}"
+    if number == 0:
+        return "0"
+    integer_digits = math.floor(math.log10(abs(number))) + 1
+    decimal_places = max(0, significant_digits - integer_digits)
+    return f"{number:.{decimal_places}f}"
+
+
+def format_quantity(
+    quantity: Quantity,
+    precision: str = ".3g",
+    *,
+    auto_scale: bool = True,
+    scientific: bool = True,
+    significant_digits: int = 3,
+) -> str:
     """Format a quantity with preferred units while preserving compound bases."""
     if auto_scale:
         quantity = to_preferred_unit(quantity)
-    formatted = f"{quantity:{precision}~P}"
+    formatted = (
+        f"{quantity:{precision}~P}"
+        if scientific
+        else f"{format_number(quantity.magnitude, significant_digits, scientific=False)} {quantity.units:~P}"
+    )
     return (
         formatted.replace(" / a", " / year")
         .replace("/a", " / year")

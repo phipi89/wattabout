@@ -52,6 +52,29 @@ def test_compound_reporting_basis_is_preserved() -> None:
     assert wa.format_quantity(quantity) == "42.3 phone_device / year"
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (0.591123123, "0.591"),
+        (59.1123123, "59.1"),
+        (12_345_353, "12345353"),
+        (12_345_353.72, "12345354"),
+        (-12_345_353.72, "-12345354"),
+        (0, "0"),
+    ],
+)
+def test_plain_numbers_expand_without_scientific_notation(value: float, expected: str) -> None:
+    assert wa.format_number(value, scientific=False) == expected
+
+
+def test_plain_quantity_keeps_its_current_unit() -> None:
+    quantity = 0.591123123 * wa.m
+
+    assert wa.format_quantity(quantity, auto_scale=False, scientific=False) == "0.591 m"
+    assert wa.format_quantity(quantity.to(wa.cm), auto_scale=False, scientific=False) == "59.1 cm"
+    assert wa.format_quantity(12_345_353 * wa.m, auto_scale=False, scientific=False) == "12345353 m"
+
+
 def test_llm_to_annual_building_rate_uses_minutes() -> None:
     comparison = wa.ai.frontier_llm(1e6) / wa.buildings.house_1960s(120 * wa.m2)
 

@@ -8,8 +8,8 @@ About 83 km by train. WattAbout is a Python library that helps me build an intui
 from wattabout import *
 
 # building this was about half a cervelat
-ai.frontier_llm(3e6 * token, cache_read_ratio=0.95) / food.cervelat(100 * gram)
-# 0.531×
+ai.frontier_llm(3e6 * token, cache_read_ratio=0.95) / food.cervelat
+# 55.7 mm
 
 
 # lets do a trip
@@ -31,7 +31,6 @@ buildings.house_1960s() / buildings.minergie
 # 70.7×
 ```
 
-
 getting started:
 
 ```python
@@ -48,5 +47,7 @@ list_categories()
 list_assets()
 transport.flight?
 ```
+
+For an interactive web app based on WattAbout, check out [WattAbout-web](https://github.com/phipi89/wattabout-web) on GitHub, or [open WattAbout](https://phipi.ch/wattabout/) directly in your browser.
 
 This is not a tool for a proper lifecycle study. The built-in numbers are ai-generated prototype estimates. The longer explanation, model assumptions, and API reference live in [the design notes](docs/design.md).
